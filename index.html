@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hydro-Québec — Pannes en cours</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; background: #0d1520; }
+
+/* Sidebar */
+#sidebar {
+  width: 380px; min-width: 380px; display: flex; flex-direction: column;
+  background: #141e2b; color: #cfd8e3; border-right: 1px solid #2a3545; z-index: 10;
+  transition: width 0.3s ease, min-width 0.3s ease;
+  overflow: hidden;
+}
+#sidebar.collapsed { width: 0; min-width: 0; border-right: none; }
+#sidebar.collapsed #sidebar-inner { opacity: 0; pointer-events: none; }
+#sidebar-inner {
+  display: flex; flex-direction: column; flex: 1; min-width: 380px;
+  transition: opacity 0.2s ease;
+}
+
+#sidebar-toggle {
+  position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+  z-index: 25; width: 20px; height: 56px;
+  background: #1a2a3a; color: #fff; border: none;
+  border-radius: 0 6px 6px 0; cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+  transition: background 0.15s;
+}
+#sidebar-toggle:hover { background: #2a3f55; }
+
+#sidebar-header {
+  padding: 14px 16px; background: #1a2a3a; color: #fff;
+}
+#sidebar-header h1 { font-size: 16px; font-weight: 600; }
+#sidebar-header .subtitle { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+/* Status bar */
+#status-bar {
+  display: flex; gap: 8px; padding: 10px 16px; background: #1a2a3a;
+  border-bottom: 1px solid #2a3545; flex-wrap: wrap; align-items: center;
+}
+.stat-chip {
+  font-size: 12px; padding: 4px 10px; border-radius: 12px;
+  background: #253545; color: #b0bec5; white-space: nowrap;
+}
+.stat-chip.alert { background: #3a1a1a; color: #ff6b6b; font-weight: 600; }
+.stat-chip.ok { background: #1a3a2a; color: #69db7c; }
+#timing { font-size: 10px; color: #5a6a7a; margin-left: auto; }
+
+/* Filters */
+#filters {
+  padding: 10px 16px; border-bottom: 1px solid #2a3545;
+  display: flex; flex-direction: column; gap: 8px;
+}
+#filters label { font-size: 11px; font-weight: 600; color: #7a8a9a; text-transform: uppercase; letter-spacing: 0.5px; }
+#filters select, #filters input {
+  width: 100%; padding: 7px 10px; border: 1px solid #2a3545; border-radius: 6px;
+  font-size: 13px; background: #1a2a3a; color: #cfd8e3;
+}
+#filters select:focus, #filters input:focus { outline: none; border-color: #4a6a8a; }
+#city-search-wrap { position: relative; }
+#city-results {
+  position: absolute; top: 100%; left: 0; right: 0; background: #1a2a3a;
+  border: 1px solid #2a3545; border-top: none; border-radius: 0 0 6px 6px;
+  max-height: 200px; overflow-y: auto; z-index: 100; display: none;
+}
+#city-results div {
+  padding: 6px 10px; font-size: 13px; cursor: pointer; color: #cfd8e3;
+}
+#city-results div:hover { background: #253545; }
+
+/* Table */
+#table-wrap {
+  flex: 1; overflow-y: auto; padding: 0;
+}
+table { width: 100%; border-collapse: collapse; font-size: 12px; color: #b0bec5; }
+thead { position: sticky; top: 0; background: #1a2a3a; z-index: 5; }
+th {
+  padding: 8px 10px; text-align: left; font-weight: 600; color: #7a8a9a;
+  border-bottom: 2px solid #2a3545; cursor: pointer; white-space: nowrap;
+  user-select: none;
+}
+th:hover { color: #cfd8e3; }
+th.sort-asc::after { content: ' \25B2'; font-size: 9px; }
+th.sort-desc::after { content: ' \25BC'; font-size: 9px; }
+td { padding: 6px 10px; border-bottom: 1px solid #1e2e3e; }
+tr:hover { background: #1a2a3a; }
+tr.severe { background: #2a1515; }
+tr.severe:hover { background: #351a1a; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pct-bar {
+  display: inline-block; height: 10px; border-radius: 3px;
+  background: #f39c12; min-width: 2px; vertical-align: middle;
+}
+.pct-bar.high { background: #e74c3c; }
+
+/* Map area */
+#map-wrap { flex: 1; position: relative; }
+#map { width: 100%; height: 100%; }
+
+.map-btn {
+  position: absolute; z-index: 10;
+  background: rgba(20, 30, 43, 0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid #2a3545; border-radius: 6px;
+  padding: 6px 12px; font-size: 12px; font-weight: 600; color: #b0bec5;
+  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.map-btn:hover { background: rgba(30, 45, 60, 0.9); color: #fff; }
+.map-btn.active { background: rgba(40, 80, 120, 0.85); color: #fff; border-color: #4a7aaa; }
+
+#reset-view { bottom: 32px; right: 12px; }
+#wx-btn { bottom: 32px; right: 52px; }
+
+/* Map HUD overlay */
+#map-hud {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 10; pointer-events: none;
+  background: rgba(0, 20, 40, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-radius: 14px; padding: 14px 24px;
+  color: #fff; text-align: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  transition: background 0.6s ease;
+  min-width: 260px;
+}
+#map-hud.flash-red { background: rgba(180, 30, 30, 0.85); }
+#map-hud.flash-green { background: rgba(30, 140, 50, 0.85); }
+
+#hud-count {
+  font-size: 32px; font-weight: 700; letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+#hud-label { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+#hud-delta {
+  font-size: 14px; font-weight: 600; margin-top: 4px;
+  min-height: 20px;
+  transition: opacity 0.5s ease;
+}
+#hud-delta.up { color: #ff6b6b; }
+#hud-delta.down { color: #69db7c; }
+#hud-secondary {
+  font-size: 12px; opacity: 0.65; margin-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.15); padding-top: 6px;
+}
+#hud-updated { font-size: 10px; opacity: 0.45; margin-top: 4px; }
+
+/* Last updated (sidebar footer) */
+#last-updated {
+  padding: 6px 16px; font-size: 11px; color: #5a6a7a;
+  border-top: 1px solid #2a3545; background: #111c28; text-align: center;
+}
+
+/* Popup */
+.maplibregl-popup-content { padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+.popup-id { font-weight: 600; color: #003d6b; }
+.popup-time { color: #666; font-size: 12px; }
+.popup-major { color: #e74c3c; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="sidebar" class="collapsed">
+  <div id="sidebar-inner">
+    <div id="sidebar-header">
+      <h1>Hydro-Qu&eacute;bec &mdash; Pannes en cours</h1>
+      <div class="subtitle">Mise &agrave; jour automatique aux 30 secondes</div>
+    </div>
+
+    <div id="status-bar">
+      <span class="stat-chip alert" id="chip-interrupted">&mdash;</span>
+      <span class="stat-chip" id="chip-outages">&mdash;</span>
+      <span class="stat-chip" id="chip-munis">&mdash;</span>
+      <span id="timing"></span>
+    </div>
+
+    <div id="filters">
+      <div>
+        <label>R&eacute;gion</label>
+        <select id="region-filter"><option value="">Toutes les r&eacute;gions</option></select>
+      </div>
+      <div id="city-search-wrap">
+        <label>Rechercher une ville</label>
+        <input id="city-search" type="text" placeholder="Tapez un nom de ville..." autocomplete="off">
+        <div id="city-results"></div>
+      </div>
+    </div>
+
+    <div id="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-col="name">Municipalit&eacute;</th>
+            <th data-col="interrupted" class="num sort-desc">Interrompus</th>
+            <th data-col="pct" class="num">%</th>
+            <th data-col="outages" class="num">Pannes</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+
+    <div id="last-updated">En attente de donn&eacute;es...</div>
+  </div>
+</div>
+
+<div id="map-wrap">
+  <button id="sidebar-toggle" title="Afficher le panneau">&rsaquo;</button>
+  <button id="wx-btn" class="map-btn" title="Radar m&eacute;t&eacute;o">&#9729;</button>
+  <button id="reset-view" class="map-btn" title="Vue d'ensemble du Qu&eacute;bec">&#8634;</button>
+  <div id="map-hud">
+    <div id="hud-count">&mdash;</div>
+    <div id="hud-label">clients interrompus</div>
+    <div id="hud-delta"></div>
+    <div id="hud-secondary">&mdash;</div>
+    <div id="hud-updated"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+// ── API URLs ──
+const ARCGIS_BASE = 'https://services5.arcgis.com/0akaykIdiPuMhFIy/arcgis/rest/services/bs_infoPannes_prd_vue/FeatureServer';
+const ARCGIS_POINTS = ARCGIS_BASE + '/0/query?where=1%3D1&outFields=*&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&resultType=tile&f=geojson';
+const ARCGIS_POLYGONS = ARCGIS_BASE + '/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&geometryPrecision=5&resultType=tile&f=geojson';
+const BIS_URL = 'https://services-bs.solutions.hydroquebec.com/pan/web/api/v1/bis';
+const REGIONS_URL = 'https://infopannes.solutions.hydroquebec.com/assets/data/bilan-par-region.json';
+const RAINVIEWER_URL = 'https://api.rainviewer.com/public/weather-maps.json';
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+// ── State ──
+let regionData = [];
+let bisData = [];
+let regionMap = {};
+let currentSort = { col: 'interrupted', dir: 'desc' };
+let selectedRegionId = '';
+let previousTotal = null;
+let knownOutageIds = new Set();
+let newOutageIds = new Set();
+let pulseAnimId = null;
+let currentOutageData = null;
+
+// ── Sidebar toggle ──
+const sidebar = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('sidebar-toggle');
+
+toggleBtn.addEventListener('click', () => {
+  sidebar.classList.toggle('collapsed');
+  toggleBtn.innerHTML = sidebar.classList.contains('collapsed') ? '&rsaquo;' : '&lsaquo;';
+  toggleBtn.title = sidebar.classList.contains('collapsed') ? 'Afficher le panneau' : 'Réduire le panneau';
+});
+sidebar.addEventListener('transitionend', () => map.resize());
+
+// Default view: southern Quebec corridor (Gatineau → Québec, Sherbrooke → Mont-Laurier)
+const DEFAULT_BOUNDS = [[-76.2, 45.0], [-70.5, 47.1]];
+function resetView() {
+  map.fitBounds(DEFAULT_BOUNDS, { padding: 20, duration: 1200 });
+}
+document.getElementById('reset-view').addEventListener('click', resetView);
+
+// ── Weather radar overlay ──
+let wxActive = false;
+let wxRefreshTimer = null;
+
+async function loadWeatherRadar() {
+  try {
+    const data = await fetch(RAINVIEWER_URL).then(r => r.json());
+    const latest = data.radar.past[data.radar.past.length - 1];
+    const tileUrl = data.host + latest.path + '/256/{z}/{x}/{y}/2/1_1.png';
+
+    if (map.getSource('weather-radar')) {
+      // Update existing source tiles
+      map.removeLayer('weather-radar');
+      map.removeSource('weather-radar');
+    }
+
+    map.addSource('weather-radar', {
+      type: 'raster',
+      tiles: [tileUrl],
+      tileSize: 256,
+      maxzoom: 7,
+      attribution: '<a href="https://www.rainviewer.com/">RainViewer</a>'
+    });
+
+    // Insert below outage layers so outages render on top
+    map.addLayer({
+      id: 'weather-radar',
+      type: 'raster',
+      source: 'weather-radar',
+      paint: { 'raster-opacity': 0.5 }
+    }, 'outage-polygon-fill');
+  } catch (err) {
+    console.error('Weather radar error:', err);
+  }
+}
+
+function toggleWeather() {
+  const btn = document.getElementById('wx-btn');
+  wxActive = !wxActive;
+  btn.classList.toggle('active', wxActive);
+
+  if (wxActive) {
+    loadWeatherRadar();
+    wxRefreshTimer = setInterval(loadWeatherRadar, 600000); // refresh every 10 min
+  } else {
+    clearInterval(wxRefreshTimer);
+    if (map.getLayer('weather-radar')) map.removeLayer('weather-radar');
+    if (map.getSource('weather-radar')) map.removeSource('weather-radar');
+  }
+}
+
+document.getElementById('wx-btn').addEventListener('click', toggleWeather);
+
+
+// ── Map init ──
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/dark',
+  center: [-73.2, 46],
+  zoom: 7,
+  maxBounds: [[-80, 44], [-56, 63]],
+  minZoom: 5,
+  attributionControl: false
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+map.on('load', () => {
+  // Outage polygons source + layer
+  map.addSource('outage-polygons', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'outage-polygon-fill',
+    type: 'fill',
+    source: 'outage-polygons',
+    paint: {
+      'fill-color': ['case', ['==', ['get', 'panneMajeure'], 1], '#e74c3c', '#f39c12'],
+      'fill-opacity': 0.35
+    }
+  });
+  map.addLayer({
+    id: 'outage-polygon-line',
+    type: 'line',
+    source: 'outage-polygons',
+    paint: {
+      'line-color': ['case', ['==', ['get', 'panneMajeure'], 1], '#c0392b', '#e67e22'],
+      'line-width': 1.5,
+      'line-opacity': 0.7
+    }
+  });
+
+  // Outage points source (clustered)
+  map.addSource('outage-points', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterRadius: 50,
+    clusterMaxZoom: 12
+  });
+
+  // ── New outage pulse layer (separate non-clustered source) ──
+  map.addSource('new-outage-pulse', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] }
+  });
+  // Outer expanding ring
+  map.addLayer({
+    id: 'new-pulse-ring',
+    type: 'circle',
+    source: 'new-outage-pulse',
+    paint: {
+      'circle-color': '#e74c3c',
+      'circle-radius': 18,
+      'circle-opacity': 0.4,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#e74c3c',
+      'circle-stroke-opacity': 0.6
+    }
+  });
+  // Inner bright dot
+  map.addLayer({
+    id: 'new-pulse-dot',
+    type: 'circle',
+    source: 'new-outage-pulse',
+    paint: {
+      'circle-color': '#ff4444',
+      'circle-radius': 6,
+      'circle-opacity': 0.9
+    }
+  });
+
+  // Cluster circles
+  map.addLayer({
+    id: 'cluster-circles',
+    type: 'circle',
+    source: 'outage-points',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': ['step', ['get', 'point_count'], '#f39c12', 10, '#e67e22', 30, '#e74c3c', 50, '#c0392b'],
+      'circle-radius': ['step', ['get', 'point_count'], 16, 10, 22, 30, 28, 50, 34],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff'
+    }
+  });
+  map.addLayer({
+    id: 'cluster-count',
+    type: 'symbol',
+    source: 'outage-points',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-size': 12,
+      'text-font': ['Open Sans Bold']
+    },
+    paint: { 'text-color': '#fff' }
+  });
+
+  // Individual points
+  map.addLayer({
+    id: 'outage-dots',
+    type: 'circle',
+    source: 'outage-points',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-color': ['case', ['==', ['get', 'panneMajeure'], 1], '#e74c3c', '#f39c12'],
+      'circle-radius': 7,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff'
+    }
+  });
+
+  // Click on cluster -> zoom in
+  map.on('click', 'cluster-circles', (e) => {
+    const features = map.queryRenderedFeatures(e.point, { layers: ['cluster-circles'] });
+    const clusterId = features[0].properties.cluster_id;
+    map.getSource('outage-points').getClusterExpansionZoom(clusterId, (err, zoom) => {
+      if (err) return;
+      map.easeTo({ center: features[0].geometry.coordinates, zoom: zoom + 1 });
+    });
+  });
+
+  // Click on dot -> popup
+  const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 10 });
+  map.on('click', 'outage-dots', (e) => {
+    const p = e.features[0].properties;
+    const coords = e.features[0].geometry.coordinates.slice();
+    const created = new Date(p.dateCreation);
+    const timeStr = created.toLocaleString('fr-CA', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+    const major = p.panneMajeure ? '<div class="popup-major">&#9888; Panne majeure</div>' : '';
+    const isNew = newOutageIds.has(p.idInterruption) ? '<div style="color:#e74c3c;font-weight:600;font-size:11px">&#11044; NOUVELLE</div>' : '';
+    popup.setLngLat(coords).setHTML(
+      '<div class="popup-id">' + p.idInterruption + '</div>' +
+      '<div class="popup-time">Cr\u00e9\u00e9e: ' + timeStr + '</div>' +
+      major + isNew
+    ).addTo(map);
+  });
+
+  // Hover cursors
+  map.on('mouseenter', 'cluster-circles', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'cluster-circles', () => map.getCanvas().style.cursor = '');
+  map.on('mouseenter', 'outage-dots', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'outage-dots', () => map.getCanvas().style.cursor = '');
+  map.on('mouseenter', 'outage-polygon-fill', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'outage-polygon-fill', () => map.getCanvas().style.cursor = '');
+
+  // Click polygon -> popup
+  map.on('click', 'outage-polygon-fill', (e) => {
+    if (e.features.length === 0) return;
+    const p = e.features[0].properties;
+    const created = new Date(p.dateCreation);
+    const timeStr = created.toLocaleString('fr-CA', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+    const major = p.panneMajeure ? '<div class="popup-major">&#9888; Panne majeure</div>' : '';
+    popup.setLngLat(e.lngLat).setHTML(
+      '<div class="popup-id">' + p.idInterruption + '</div>' +
+      '<div class="popup-time">Cr\u00e9\u00e9e: ' + timeStr + '</div>' +
+      major
+    ).addTo(map);
+  });
+
+  // Start pulse animation loop
+  startPulseAnimation();
+
+  // Start polling
+  fetchAll();
+  setInterval(fetchAll, 30000);
+});
+
+
+// ── Pulse animation loop ──
+function startPulseAnimation() {
+  function animate() {
+    pulseAnimId = requestAnimationFrame(animate);
+    if (newOutageIds.size === 0) return;
+
+    const t = performance.now() / 1000;
+    // Sin wave: period ~1.5s
+    const wave = (Math.sin(t * 4.2) + 1) / 2; // 0..1
+
+    const radius = 10 + wave * 16;   // 10..26
+    const opacity = 0.15 + (1 - wave) * 0.45;  // 0.15..0.6
+    const strokeOpacity = 0.2 + (1 - wave) * 0.6;
+
+    map.setPaintProperty('new-pulse-ring', 'circle-radius', radius);
+    map.setPaintProperty('new-pulse-ring', 'circle-opacity', opacity);
+    map.setPaintProperty('new-pulse-ring', 'circle-stroke-opacity', strokeOpacity);
+  }
+  animate();
+}
+
+
+// ── Animated counter ──
+function animateCount(el, from, to, duration) {
+  const start = performance.now();
+  const diff = to - from;
+  if (diff === 0) { el.textContent = to.toLocaleString('fr-CA'); return; }
+
+  function step(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = Math.round(from + diff * eased);
+    el.textContent = current.toLocaleString('fr-CA');
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+
+// ── Data fetching ──
+async function fetchAll() {
+  const t0 = performance.now();
+  try {
+    const [outagesData, polygonsData, bisRaw] = await Promise.all([
+      fetch(ARCGIS_POINTS).then(r => r.json()),
+      fetch(ARCGIS_POLYGONS).then(r => r.json()),
+      fetch(CORS_PROXY + encodeURIComponent(BIS_URL)).then(r => r.json())
+    ]);
+
+    const totalMs = Math.round(performance.now() - t0);
+    document.getElementById('timing').textContent = totalMs + 'ms';
+
+    // ── Detect new outages ──
+    const currentIds = new Set();
+    const newFeatures = [];
+    for (const f of outagesData.features || []) {
+      const id = f.properties.idInterruption;
+      currentIds.add(id);
+      if (knownOutageIds.size > 0 && !knownOutageIds.has(id)) {
+        newFeatures.push(f);
+        newOutageIds.add(id);
+      }
+    }
+
+    // Update pulse source with new outage points
+    if (newFeatures.length > 0) {
+      map.getSource('new-outage-pulse').setData({
+        type: 'FeatureCollection',
+        features: newFeatures
+      });
+      // Clear pulse after 3 minutes
+      setTimeout(() => {
+        newOutageIds.clear();
+        map.getSource('new-outage-pulse').setData({ type: 'FeatureCollection', features: [] });
+      }, 180000);
+    }
+
+    // Update known IDs for next poll
+    knownOutageIds = currentIds;
+    currentOutageData = outagesData;
+
+    // Update map sources
+    map.getSource('outage-points').setData(outagesData);
+    map.getSource('outage-polygons').setData(polygonsData);
+
+    // Update BIS data + table
+    bisData = bisRaw;
+    updateHUD();
+    updateStatusBar();
+    renderTable();
+
+    const now = new Date().toLocaleString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('last-updated').textContent = 'Derni\u00e8re mise \u00e0 jour: ' + now;
+    document.getElementById('hud-updated').textContent = now;
+  } catch (err) {
+    console.error('Fetch error:', err);
+    document.getElementById('last-updated').textContent = 'Erreur: ' + err.message;
+  }
+}
+
+
+
+// ── HUD update with animation ──
+function updateHUD() {
+  const active = bisData.filter(x => x.nbClientInterrompu > 0);
+  const totalInterrupted = active.reduce((s, x) => s + x.nbClientInterrompu, 0);
+  const totalOutages = active.reduce((s, x) => s + x.nbPanne, 0);
+  const totalMunis = active.length;
+
+  const hudCount = document.getElementById('hud-count');
+  const hudDelta = document.getElementById('hud-delta');
+  const hud = document.getElementById('map-hud');
+
+  // Animate count
+  const from = previousTotal !== null ? previousTotal : 0;
+  animateCount(hudCount, from, totalInterrupted, previousTotal !== null ? 1200 : 400);
+
+  // Delta badge + flash
+  if (previousTotal !== null && previousTotal !== totalInterrupted) {
+    const delta = totalInterrupted - previousTotal;
+    const sign = delta > 0 ? '+' : '';
+    const arrow = delta > 0 ? '\u25B2' : '\u25BC';
+    hudDelta.textContent = arrow + ' ' + sign + delta.toLocaleString('fr-CA');
+    hudDelta.className = delta > 0 ? 'up' : 'down';
+    hudDelta.style.opacity = '1';
+
+    // Flash HUD background
+    hud.classList.add(delta > 0 ? 'flash-red' : 'flash-green');
+    setTimeout(() => hud.classList.remove('flash-red', 'flash-green'), 2000);
+
+    // Fade out delta after 8s
+    setTimeout(() => { hudDelta.style.opacity = '0'; }, 8000);
+  } else if (previousTotal === null) {
+    hudDelta.textContent = '';
+  }
+
+  previousTotal = totalInterrupted;
+
+  // Secondary stats
+  document.getElementById('hud-secondary').textContent =
+    totalOutages + ' pannes \u00b7 ' + totalMunis + ' municipalit\u00e9s';
+
+}
+
+
+// ── Regions ──
+async function loadRegions() {
+  regionData = await fetch(CORS_PROXY + encodeURIComponent(REGIONS_URL)).then(r => r.json());
+  regionMap = {};
+  regionData.forEach(r => regionMap[r.id] = r);
+
+  const select = document.getElementById('region-filter');
+  regionData.filter(r => r.level === 0).sort((a, b) => a.nom.localeCompare(b.nom)).forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.nom;
+    select.appendChild(opt);
+  });
+}
+loadRegions();
+
+document.getElementById('region-filter').addEventListener('change', (e) => {
+  selectedRegionId = e.target.value;
+  renderTable();
+
+  if (selectedRegionId && regionMap[selectedRegionId] && regionMap[selectedRegionId].coords) {
+    flyToCoords(regionMap[selectedRegionId].coords);
+  } else {
+    resetView();
+  }
+});
+
+function flyToCoords(coordStr) {
+  const parts = {};
+  coordStr.split('&').forEach(p => { const [k, v] = p.split('='); parts[k] = parseFloat(v); });
+  const bounds = [[parts.o, parts.s], [parts.e, parts.n]];
+  map.fitBounds(bounds, { padding: 40, duration: 1200 });
+}
+
+
+// ── City search ──
+const cityInput = document.getElementById('city-search');
+const cityResults = document.getElementById('city-results');
+
+cityInput.addEventListener('input', () => {
+  const q = cityInput.value.toLowerCase().trim();
+  cityResults.innerHTML = '';
+  if (q.length < 2) { cityResults.style.display = 'none'; return; }
+
+  const matches = regionData
+    .filter(r => (r.level === 2 || r.level === 3) && r.nom.toLowerCase().includes(q))
+    .slice(0, 15);
+
+  if (matches.length === 0) { cityResults.style.display = 'none'; return; }
+  cityResults.style.display = 'block';
+
+  matches.forEach(m => {
+    const div = document.createElement('div');
+    const parent = regionMap[m.parentId];
+    const regionName = parent && parent.fil ? parent.fil.split(';')[0] : '';
+    div.textContent = m.nom + (regionName ? ' (' + regionName + ')' : '');
+    div.addEventListener('click', () => {
+      cityInput.value = m.nom;
+      cityResults.style.display = 'none';
+      if (m.coords) {
+        flyToCoords(m.coords);
+      } else if (parent && parent.coords) {
+        flyToCoords(parent.coords);
+      }
+    });
+    cityResults.appendChild(div);
+  });
+});
+
+cityInput.addEventListener('blur', () => setTimeout(() => cityResults.style.display = 'none', 200));
+
+
+// ── Status bar ──
+function updateStatusBar() {
+  const active = bisData.filter(x => x.nbClientInterrompu > 0);
+  const totalInterrupted = active.reduce((s, x) => s + x.nbClientInterrompu, 0);
+  const totalOutages = active.reduce((s, x) => s + x.nbPanne, 0);
+
+  document.getElementById('chip-interrupted').textContent = totalInterrupted.toLocaleString('fr-CA') + ' clients interrompus';
+  document.getElementById('chip-outages').textContent = totalOutages + ' pannes';
+  document.getElementById('chip-munis').textContent = active.length + ' municipalit\u00e9s';
+}
+
+
+// ── Table ──
+function getDescendantIds(parentId) {
+  const ids = new Set();
+  function collect(pid) {
+    regionData.forEach(r => {
+      if (r.parentId === pid) {
+        ids.add(r.id);
+        if (r.hasChildren) collect(r.id);
+      }
+    });
+  }
+  collect(parentId);
+  return ids;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('table-body');
+
+  let filtered = bisData.filter(x => x.nbClientInterrompu > 0);
+
+  if (selectedRegionId) {
+    const validIds = getDescendantIds(selectedRegionId);
+    validIds.add(selectedRegionId);
+    filtered = filtered.filter(x => validIds.has(x.id));
+  }
+
+  let rows = filtered.map(x => {
+    const region = regionMap[x.id];
+    const name = region ? region.nom : 'ID: ' + x.id;
+    const fil = region && region.fil ? region.fil.split(';')[0] : '';
+    const pct = x.nbClientRaccorde > 0 ? (x.nbClientInterrompu / x.nbClientRaccorde * 100) : 0;
+    const level = region ? region.level : 99;
+    return { ...x, name, fil, pct, level };
+  });
+
+  rows = rows.filter(r => r.level >= 2);
+
+  const { col, dir } = currentSort;
+  const mult = dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    if (col === 'name') return mult * a.name.localeCompare(b.name);
+    if (col === 'interrupted') return mult * (a.nbClientInterrompu - b.nbClientInterrompu);
+    if (col === 'pct') return mult * (a.pct - b.pct);
+    if (col === 'outages') return mult * (a.nbPanne - b.nbPanne);
+    return 0;
+  });
+
+  tbody.innerHTML = rows.map(r => {
+    const severe = r.pct >= 10 ? ' class="severe"' : '';
+    const barClass = r.pct >= 10 ? 'pct-bar high' : 'pct-bar';
+    const barWidth = Math.min(r.pct, 100);
+    return '<tr' + severe + '>' +
+      '<td title="' + (r.fil ? r.fil + ' > ' + r.name : r.name) + '">' + r.name + '</td>' +
+      '<td class="num">' + r.nbClientInterrompu.toLocaleString('fr-CA') + '</td>' +
+      '<td class="num"><span class="' + barClass + '" style="width:' + barWidth + 'px"></span> ' + r.pct.toFixed(0) + '%</td>' +
+      '<td class="num">' + r.nbPanne + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// Sortable headers
+document.querySelectorAll('th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (currentSort.col === col) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort = { col, dir: col === 'name' ? 'asc' : 'desc' };
+    }
+    document.querySelectorAll('th').forEach(t => t.classList.remove('sort-asc', 'sort-desc'));
+    th.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    renderTable();
+  });
+});
+</script>
+</body>
+</html>
