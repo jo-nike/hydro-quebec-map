@@ -244,13 +244,9 @@ tr.severe:hover { background: #351a1a; }
 
 <script>
 // ── API URLs ──
-const ARCGIS_BASE = 'https://services5.arcgis.com/0akaykIdiPuMhFIy/arcgis/rest/services/bs_infoPannes_prd_vue/FeatureServer';
-const ARCGIS_POINTS = ARCGIS_BASE + '/0/query?where=1%3D1&outFields=*&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&resultType=tile&f=geojson';
-const ARCGIS_POLYGONS = ARCGIS_BASE + '/1/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&geometryPrecision=5&resultType=tile&f=geojson';
-const BIS_URL = 'https://services-bs.solutions.hydroquebec.com/pan/web/api/v1/bis';
+const API_BASE = 'https://hydro-proxy.derter.workers.dev';
 const REGIONS_URL = 'https://infopannes.solutions.hydroquebec.com/assets/data/bilan-par-region.json';
 const RAINVIEWER_URL = 'https://api.rainviewer.com/public/weather-maps.json';
-const CORS_PROXY = 'https://api.allorigins.win/get?url=';
 
 // ── State ──
 let regionData = [];
@@ -555,9 +551,9 @@ async function fetchAll() {
   const t0 = performance.now();
   try {
     const [outagesData, polygonsData, bisRaw] = await Promise.all([
-      fetch(ARCGIS_POINTS).then(r => r.json()),
-      fetch(ARCGIS_POLYGONS).then(r => r.json()),
-      fetch(CORS_PROXY + encodeURIComponent(BIS_URL)).then(r => r.json()).then(j => JSON.parse(j.contents))
+      fetch(API_BASE + '/api/outages').then(r => r.json()),
+      fetch(API_BASE + '/api/polygons').then(r => r.json()),
+      fetch(API_BASE + '/api/bis').then(r => r.json())
     ]);
 
     const totalMs = Math.round(performance.now() - t0);
